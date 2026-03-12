@@ -17,7 +17,10 @@ let tracks=[]
 let currentIndex=-1
 
 let audio=new Audio()
+
 audio.setAttribute("playsinline","true")
+audio.preload="auto"
+audio.crossOrigin="anonymous"
 
 let audioCtx
 let analyser
@@ -53,6 +56,7 @@ const cover=document.getElementById("cover")
 
 const canvas=document.getElementById("wave")
 const ctx=canvas.getContext("2d")
+
 
 /* ================================
 CANVAS FIX (MOBILE)
@@ -179,9 +183,11 @@ RENDER
 
 function render(){
 
-list.innerHTML=""
-
 const keyword=search.value.toLowerCase()
+
+const scrollPos=list.scrollTop
+
+list.innerHTML=""
 
 tracks.forEach((t,i)=>{
 
@@ -190,19 +196,28 @@ if(!t.name.toLowerCase().includes(keyword))return
 const li=document.createElement("li")
 
 li.className="track"
+li.draggable=true
+li.dataset.index=i
 
-if(i===currentIndex)li.classList.add("playing")
+if(i===currentIndex) li.classList.add("playing")
 
 const isPlaying=i===currentIndex&&!audio.paused
 
 li.innerHTML=`
 <span>${isPlaying?"⏸ ":"▶ "} ${t.name}</span>
+
 <div>
+
 <button class="playBtn" data-i="${i}">
 ${isPlaying?"⏸":"▶"}
 </button>
+
+<button class="upBtn" data-i="${i}">⬆</button>
+<button class="downBtn" data-i="${i}">⬇</button>
+
 <button onclick="deleteTrack(${i})">🗑</button>
 <button onclick="downloadTrack(${i})">⬇</button>
+
 </div>
 `
 
@@ -210,27 +225,11 @@ list.appendChild(li)
 
 })
 
-document.querySelectorAll(".playBtn").forEach(btn=>{
+list.scrollTop=scrollPos
 
-btn.onclick=()=>{
-
-const i=parseInt(btn.dataset.i)
-
-if(currentIndex===i&&!audio.paused){
-
-audio.pause()
-
-}else{
-
-playTrack(i)
-
-}
-
-updatePlayIcons()
-
-}
-
-})
+attachControls()
+enableDragDrop()
+enableSwipe()
 
 }
 
@@ -297,16 +296,78 @@ render()
 /* ================================
 PLAYER CONTROLS
 ================================ */
+function attachControls(){
+
+document.querySelectorAll(".playBtn").forEach(btn=>{
+
+btn.onclick=()=>{
+
+const i=parseInt(btn.dataset.i)
+
+if(currentIndex===i&&!audio.paused){
+audio.pause()
+}else{
+playTrack(i)
+}
+
+updatePlayIcons()
+
+}
+
+})
+
+document.querySelectorAll(".upBtn").forEach(btn=>{
+
+const i=parseInt(btn.dataset.i)
+
+btn.onmousedown=()=>holdMove(i,-1)
+btn.onmouseup=stopHoldMove
+btn.onmouseleave=stopHoldMove
+
+btn.onclick=()=>moveUp(i)
+
+})
+
+document.querySelectorAll(".downBtn").forEach(btn=>{
+
+const i=parseInt(btn.dataset.i)
+
+btn.onmousedown=()=>holdMove(i,1)
+btn.onmouseup=stopHoldMove
+btn.onmouseleave=stopHoldMove
+
+btn.onclick=()=>moveDown(i)
+
+})
+
+}
+audio.addEventListener("play",()=>{
+
+render()
+
+playBtn.textContent="⏸"
+
+})
+
+audio.addEventListener("pause",()=>{
+
+render()
+
+playBtn.textContent="▶"
+
+})
 
 playBtn.onclick=()=>{
 
 if(audio.paused){
 
-audio.play()
+audio.play().catch(e=>console.log(e))
 
 }else{
 
 audio.pause()
+
+audio.currentTime=audio.currentTime
 
 }
 
@@ -391,18 +452,36 @@ progress.value=audio.currentTime/audio.duration*100
 PROGRESS FIX
 ================================ */
 
-progress.oninput=()=>{
+progress.addEventListener("input",()=>{
 
 if(!audio.duration)return
 
 audio.currentTime=
-progress.value/100*audio.duration
+(progress.value/100)*audio.duration
 
-}
+})
+
+progress.addEventListener("change",()=>{
+
+if(!audio.duration)return
+
+audio.currentTime=
+(progress.value/100)*audio.duration
+
+})
 
 /* ================================
 VOLUME
 ================================ */
+const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)
+
+if(isiOS){
+
+volume.style.display="none"
+
+volumeText.textContent="Use device volume"
+
+}
 
 volume.oninput=()=>{
 
@@ -516,8 +595,21 @@ album:"Audio Player"
 
 })
 
-navigator.mediaSession.setActionHandler("play",()=>audio.play())
-navigator.mediaSession.setActionHandler("pause",()=>audio.pause())
+navigator.mediaSession.setActionHandler("play",()=>{
+
+audio.play()
+
+render()
+
+})
+
+navigator.mediaSession.setActionHandler("pause",()=>{
+
+audio.pause()
+
+render()
+
+})
 navigator.mediaSession.setActionHandler("nexttrack",()=>nextBtn.onclick())
 navigator.mediaSession.setActionHandler("previoustrack",()=>prevBtn.onclick())
 
@@ -550,7 +642,164 @@ a.download=t.name
 a.click()
 
 }
+let holdInterval=null
 
+function holdMove(i,dir){
+
+stopHoldMove()
+
+holdInterval=setInterval(()=>{
+
+if(dir===-1){
+moveUp(i)
+}else{
+moveDown(i)
+}
+
+},200)
+
+}
+
+function stopHoldMove(){
+
+clearInterval(holdInterval)
+
+}
+function enableDragDrop(){
+
+let dragIndex=null
+
+document.querySelectorAll(".track").forEach(item=>{
+
+item.ondragstart=e=>{
+dragIndex=parseInt(item.dataset.index)
+}
+
+item.ondragover=e=>{
+e.preventDefault()
+}
+
+item.ondrop=e=>{
+
+const dropIndex=parseInt(item.dataset.index)
+
+if(dragIndex===dropIndex) return
+
+const moved=tracks.splice(dragIndex,1)[0]
+
+tracks.splice(dropIndex,0,moved)
+
+updateOrder()
+
+render()
+
+}
+
+})
+
+}
+function enableSwipe(){
+
+document.querySelectorAll(".track").forEach(item=>{
+
+let startX=0
+
+item.addEventListener("touchstart",e=>{
+startX=e.touches[0].clientX
+})
+
+item.addEventListener("touchend",e=>{
+
+const endX=e.changedTouches[0].clientX
+
+const diff=endX-startX
+
+const i=parseInt(item.dataset.index)
+
+if(Math.abs(diff)<40) return
+
+if(diff>0){
+moveUp(i)
+}else{
+moveDown(i)
+}
+
+})
+
+})
+
+}
+function moveUp(i){
+
+if(i===0) return
+
+const temp=tracks[i]
+
+tracks[i]=tracks[i-1]
+tracks[i-1]=temp
+
+updateOrder()
+
+render()
+
+}
+
+function moveDown(i){
+
+if(i===tracks.length-1) return
+
+const temp=tracks[i]
+
+tracks[i]=tracks[i+1]
+tracks[i+1]=temp
+
+updateOrder()
+
+render()
+
+}
+
+function moveUp(i){
+
+if(i===0) return
+
+const temp=tracks[i]
+
+tracks[i]=tracks[i-1]
+tracks[i-1]=temp
+
+updateOrder()
+
+render()
+
+}
+
+function moveDown(i){
+
+if(i===tracks.length-1) return
+
+const temp=tracks[i]
+
+tracks[i]=tracks[i+1]
+tracks[i+1]=temp
+
+updateOrder()
+
+render()
+
+}
+
+function updateOrder(){
+
+const tx=db.transaction("tracks","readwrite")
+const store=tx.objectStore("tracks")
+
+tracks.forEach((t,index)=>{
+t.order=index
+store.put(t)
+})
+
+}
 /* ================================
 DELETE
 ================================ */
@@ -566,6 +815,52 @@ tx.objectStore("tracks").delete(id)
 tracks.splice(i,1)
 
 render()
+
+}
+function moveUp(i){
+
+if(i===0)return
+
+const temp=tracks[i]
+
+tracks[i]=tracks[i-1]
+
+tracks[i-1]=temp
+
+updateOrder()
+
+render()
+
+}
+
+function moveDown(i){
+
+if(i===tracks.length-1)return
+
+const temp=tracks[i]
+
+tracks[i]=tracks[i+1]
+
+tracks[i+1]=temp
+
+updateOrder()
+
+render()
+
+}
+function updateOrder(){
+
+const tx=db.transaction("tracks","readwrite")
+
+const store=tx.objectStore("tracks")
+
+tracks.forEach((t,index)=>{
+
+t.order=index
+
+store.put(t)
+
+})
 
 }
 
