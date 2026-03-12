@@ -11,6 +11,21 @@ Notification.requestPermission()
 /* ================================
 STATE
 ================================ */
+/* ================================
+IOS AUDIO UNLOCK
+================================ */
+
+document.addEventListener("touchstart",async()=>{
+
+if(audioCtx && audioCtx.state==="suspended"){
+
+try{
+await audioCtx.resume()
+}catch(e){}
+
+}
+
+},{once:true})
 
 let db
 let tracks=[]
@@ -245,9 +260,9 @@ if(!audioCtx){
 
 audioCtx=new(window.AudioContext||window.webkitAudioContext)()
 
-source=audioCtx.createMediaElementSource(audio)
-
 analyser=audioCtx.createAnalyser()
+
+source=audioCtx.createMediaElementSource(audio)
 
 source.connect(analyser)
 
@@ -256,6 +271,14 @@ analyser.connect(audioCtx.destination)
 analyser.fftSize=512
 
 dataArray=new Uint8Array(analyser.frequencyBinCount)
+
+}
+
+if(audioCtx.state==="suspended"){
+
+try{
+await audioCtx.resume()
+}catch(e){}
 
 }
 
@@ -281,7 +304,8 @@ cover.src=img||"icons/default-cover.png"
 
 })
 
-audio.play()
+await audio.play().catch(()=>{})
+audio.playbackRate=parseFloat(speed.value)||1
 
 playBtn.textContent="⏸"
 
@@ -387,7 +411,7 @@ playBtn.textContent=audio.paused?"▶":"⏸"
 NEXT / PREV
 ================================ */
 
-prevBtn.onclick=()=>{
+prevBtn.onclick=async()=>{
 
 if(tracks.length===0)return
 
@@ -395,11 +419,31 @@ currentIndex--
 
 if(currentIndex<0)currentIndex=tracks.length-1
 
-playTrack(currentIndex)
+await playTrack(currentIndex)
 
 }
 
-nextBtn.onclick=()=>{
+nextBtn.onclick=async()=>{
+
+if(tracks.length===0)return
+
+if(shuffle){
+
+currentIndex=Math.floor(Math.random()*tracks.length)
+
+}else{
+
+currentIndex++
+
+if(currentIndex>=tracks.length)currentIndex=0
+
+}
+
+await playTrack(currentIndex)
+
+}
+
+nextBtn.onclick=async()=>{
 
 if(tracks.length===0)return
 
@@ -581,6 +625,23 @@ repeat=!repeat
 /* ================================
 MEDIA SESSION
 ================================ */
+/* ================================
+IOS AUDIO RESUME FIX
+================================ */
+
+document.addEventListener("visibilitychange",async()=>{
+
+if(!audioCtx) return
+
+if(document.visibilityState==="visible"){
+
+try{
+await audioCtx.resume()
+}catch(e){}
+
+}
+
+})
 
 function setupMediaSession(track){
 
